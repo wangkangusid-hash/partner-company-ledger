@@ -1,0 +1,12 @@
+{
+  "name": "partner-company-ledger",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node server.js",
+    "dev": "PORT=5173 node server.js"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

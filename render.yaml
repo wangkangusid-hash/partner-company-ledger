@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: partner-company-ledger
+    env: node
+    plan: free
+    buildCommand: ""
+    startCommand: node server.js
+    autoDeploy: true
+    envVars:
+      - key: LEDGER_PASSWORD
+        generateValue: true

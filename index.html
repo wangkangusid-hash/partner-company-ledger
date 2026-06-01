@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>合伙公司记账</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">每日明细 · 收入支出 · 图片凭证</p>
+          <h1>合伙公司记账</h1>
+        </div>
+        <div class="top-actions">
+          <button class="icon-button" id="exportBtn" type="button" title="导出数据">导出</button>
+          <label class="icon-button file-button" title="导入数据">
+            导入
+            <input id="importInput" type="file" accept="application/json" />
+          </label>
+        </div>
+      </header>
+
+      <section class="sync-panel" id="syncPanel">
+        <div>
+          <strong id="syncStatus">正在连接同步账本</strong>
+          <p id="syncMessage">请稍候</p>
+        </div>
+        <div class="sync-controls">
+          <label>
+            访问密码
+            <input id="passwordInput" type="password" autocomplete="current-password" placeholder="服务器设置了密码时填写" />
+          </label>
+          <button id="connectBtn" type="button">连接</button>
+          <button id="refreshBtn" type="button">刷新</button>
+        </div>
+      </section>
+
+      <section class="summary-grid" aria-label="汇总">
+        <article class="metric income">
+          <span>总收入</span>
+          <strong id="totalIncome">¥0.00</strong>
+        </article>
+        <article class="metric expense">
+          <span>总支出</span>
+          <strong id="totalExpense">¥0.00</strong>
+        </article>
+        <article class="metric balance">
+          <span>当前结余</span>
+          <strong id="balance">¥0.00</strong>
+        </article>
+        <article class="metric today">
+          <span>今日净额</span>
+          <strong id="todayNet">¥0.00</strong>
+        </article>
+      </section>
+
+      <section class="workspace">
+        <form class="entry-form" id="entryForm">
+          <div class="section-title">
+            <h2>新增明细</h2>
+            <button id="resetFormBtn" type="reset">清空</button>
+          </div>
+
+          <label>
+            日期
+            <input id="dateInput" name="date" type="date" required />
+          </label>
+
+          <div class="segmented" role="radiogroup" aria-label="类型">
+            <label>
+              <input type="radio" name="type" value="income" checked />
+              <span>收入</span>
+            </label>
+            <label>
+              <input type="radio" name="type" value="expense" />
+              <span>支出</span>
+            </label>
+          </div>
+
+          <label>
+            金额
+            <input id="amountInput" name="amount" type="text" inputmode="decimal" placeholder="0.00" required />
+          </label>
+
+          <label>
+            分类
+            <select id="categoryInput" name="category" required></select>
+          </label>
+
+          <label>
+            备注
+            <textarea id="noteInput" name="note" rows="4" placeholder="客户、项目、发票号或用途"></textarea>
+          </label>
+
+          <label>
+            上传图片
+            <input id="imageInput" name="image" type="file" accept="image/*" />
+          </label>
+          <figure class="image-preview" id="imagePreview" hidden>
+            <img alt="待保存图片预览" />
+            <figcaption>图片会随这条记录一起保存</figcaption>
+          </figure>
+
+          <button class="primary-button" type="submit">保存明细</button>
+        </form>
+
+        <section class="ledger-panel">
+          <div class="section-title filters-title">
+            <h2>每日明细</h2>
+            <button id="clearFiltersBtn" type="button">重置筛选</button>
+          </div>
+
+          <div class="filters">
+            <label>
+              从
+              <input id="fromDate" type="date" />
+            </label>
+            <label>
+              到
+              <input id="toDate" type="date" />
+            </label>
+            <label>
+              类型
+              <select id="typeFilter">
+                <option value="all">全部</option>
+                <option value="income">收入</option>
+                <option value="expense">支出</option>
+              </select>
+            </label>
+            <label>
+              搜索
+              <input id="searchInput" type="search" placeholder="分类、备注" />
+            </label>
+          </div>
+
+          <div class="day-groups" id="dayGroups"></div>
+          <p class="empty-state" id="emptyState">还没有记录。先添加一条收入或支出吧。</p>
+        </section>
+      </section>
+    </main>
+
+    <template id="dayTemplate">
+      <article class="day-card">
+        <header>
+          <div>
+            <h3></h3>
+            <p></p>
+          </div>
+          <strong></strong>
+        </header>
+        <div class="entries"></div>
+      </article>
+    </template>
+
+    <template id="entryTemplate">
+      <div class="entry-row">
+        <div class="entry-main">
+          <span class="type-pill"></span>
+          <div>
+            <strong class="entry-category"></strong>
+            <p class="entry-meta"></p>
+            <p class="entry-note"></p>
+            <button type="button" class="entry-image-button" hidden>
+              <img alt="记录图片" />
+            </button>
+          </div>
+        </div>
+        <div class="entry-side">
+          <strong class="entry-amount"></strong>
+          <button type="button" class="delete-button">删除</button>
+        </div>
+      </div>
+    </template>
+
+    <script src="./app.js"></script>
+  </body>
+</html>
