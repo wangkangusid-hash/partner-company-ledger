@@ -57,12 +57,12 @@ async function handleApi(request, response, url) {
     return;
   }
 
-  if (url.pathname === "/api/entries" && request.method === "GET") {
+  if (isEntriesPath(url.pathname) && request.method === "GET") {
     sendJson(response, 200, await readLedger());
     return;
   }
 
-  if (url.pathname === "/api/entries" && request.method === "POST") {
+  if (isEntriesPath(url.pathname) && request.method === "POST") {
     const payload = await readJsonBody(request);
     const entry = normalizeEntry(payload.entry || payload);
     if (!entry) {
@@ -77,7 +77,7 @@ async function handleApi(request, response, url) {
     return;
   }
 
-  if (url.pathname === "/api/entries" && request.method === "PUT") {
+  if (isEntriesPath(url.pathname) && request.method === "PUT") {
     const payload = await readJsonBody(request);
     const imported = Array.isArray(payload) ? payload : payload.entries;
     if (!Array.isArray(imported)) {
@@ -110,6 +110,10 @@ async function handleApi(request, response, url) {
 function isAuthorized(request) {
   if (!PASSWORD) return true;
   return request.headers["x-ledger-password"] === PASSWORD;
+}
+
+function isEntriesPath(pathname) {
+  return pathname === "/api/entries" || pathname === "/api/entries/";
 }
 
 async function readLedger() {

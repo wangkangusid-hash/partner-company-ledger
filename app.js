@@ -1,5 +1,6 @@
 const LEGACY_STORAGE_KEY = "partner-company-ledger-v1";
 const PASSWORD_STORAGE_KEY = "partner-company-ledger-password";
+const ENTRIES_API = "/api/entries/";
 
 const incomeCategories = ["销售收入", "服务费", "投资款", "退款", "其他收入"];
 const expenseCategories = ["采购", "房租", "工资", "差旅", "办公", "营销", "税费", "其他支出"];
@@ -69,7 +70,7 @@ form.addEventListener("submit", async (event) => {
 
   try {
     setBusy(true);
-    const result = await apiRequest("/api/entries", {
+    const result = await apiRequest(ENTRIES_API, {
       method: "POST",
       body: JSON.stringify({ entry }),
     });
@@ -181,7 +182,7 @@ importInput.addEventListener("change", async () => {
     if (!confirmed) return;
 
     setBusy(true);
-    const result = await apiRequest("/api/entries", {
+    const result = await apiRequest(ENTRIES_API, {
       method: "PUT",
       body: JSON.stringify({ entries }),
     });
@@ -200,7 +201,7 @@ async function loadServerEntries() {
   try {
     setBusy(true);
     setSyncState(false, "正在连接同步账本", "请稍候");
-    const data = await apiRequest("/api/entries");
+    const data = await apiRequest(ENTRIES_API);
     state.entries = normalizeEntries(data.entries);
     setSyncState(true, "已连接同步账本", `共 ${state.entries.length} 条记录`);
     maybeOfferLegacyImport();
@@ -262,7 +263,7 @@ async function maybeOfferLegacyImport() {
   const confirmed = window.confirm(`检测到本机旧账本有 ${legacyEntries.length} 条记录，是否导入到同步账本？`);
   if (!confirmed) return;
 
-  const result = await apiRequest("/api/entries", {
+  const result = await apiRequest(ENTRIES_API, {
     method: "PUT",
     body: JSON.stringify({ entries: legacyEntries }),
   });
