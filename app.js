@@ -1,6 +1,7 @@
 const LEGACY_STORAGE_KEY = "partner-company-ledger-v1";
 const LOCAL_BACKUP_KEY = "partner-company-ledger-online-backup-v1";
 const ENTRIES_API = "/api/entries/";
+const EXPORT_API = "/api/export";
 
 const incomeCategories = ["销售收入", "服务费", "投资款", "退款", "其他收入"];
 const expenseCategories = ["采购", "房租", "工资", "差旅", "办公", "营销", "税费", "其他支出"];
@@ -70,7 +71,7 @@ form.addEventListener("submit", async (event) => {
       method: "POST",
       body: JSON.stringify({ entry }),
     });
-    state.entries = normalizeEntries(result.entries || [...state.entries, result.entry]);
+    state.entries = upsertEntry(state.entries, result.entry || entry);
     saveLocalBackup(state.entries);
     setSyncState(true, "已同步", "这条明细已保存到同步账本");
     form.reset();
@@ -133,7 +134,7 @@ dayGroups.addEventListener("click", async (event) => {
   try {
     setBusy(true);
     const result = await apiRequest(`/api/entries/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
-    state.entries = normalizeEntries(result.entries || state.entries.filter((item) => item.id !== entry.id));
+    state.entries = normalizeEntries(state.entries.filter((item) => item.id !== entry.id));
     saveLocalBackup(state.entries);
     setSyncState(true, "已同步", "明细已删除");
     render();
@@ -144,11 +145,19 @@ dayGroups.addEventListener("click", async (event) => {
   }
 });
 
-exportBtn.addEventListener("click", () => {
+exportBtn.addEventListener("click", async () => {
+  let entries = state.entries;
+  try {
+    const data = await apiRequest(EXPORT_API);
+    entries = normalizeEntries(data.entries || entries);
+  } catch {
+    window.alert("完整导出失败，将导出当前页面已加载的数据。");
+  }
+
   const payload = {
     app: "合伙公司记账",
     exportedAt: new Date().toISOString(),
-    entries: state.entries,
+    entries,
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -350,7 +359,13 @@ function createEntryNode(entry) {
     imageButton.hidden = false;
     imageButton.querySelector("img").src = entry.image.dataUrl;
     imageButton.title = entry.image.name || "查看记录图片";
-    imageButton.addEventListener("click", () => openImagePreview(entry.image));
+    imageButton.addEventListener("click", () => openEntryImage(entry));
+  } else if (entry.image?.hasImage) {
+    imageButton.hidden = false;
+    imageButton.classList.add("image-placeholder");
+    imageButton.textContent = "查看图片";
+    imageButton.title = entry.image.name || "查看记录图片";
+    imageButton.addEventListener("click", () => openEntryImage(entry));
   }
   node.querySelector(".entry-amount").textContent =
     entry.type === "income" ? formatSignedMoney(entry.amount) : formatSignedMoney(-entry.amount);
@@ -390,9 +405,32 @@ function normalizeEntries(entries) {
     amount: roundMoney(Number(entry.amount)),
     category: entry.category || "未分类",
     note: typeof entry.note === "string" ? entry.note : "",
-    image: entry.image?.dataUrl ? entry.image : null,
+    image: normalizeClientImage(entry.image),
     createdAt: entry.createdAt || new Date().toISOString(),
   }));
+}
+
+function upsertEntry(entries, nextEntry) {
+  const normalized = normalizeEntries([nextEntry])[0];
+  if (!normalized) return normalizeEntries(entries);
+
+  const rest = normalizeEntries(entries).filter((entry) => entry.id !== normalized.id);
+  return [normalized, ...rest];
+}
+
+function normalizeClientImage(image) {
+  if (!image || typeof image !== "object") return null;
+  if (image.dataUrl) return image;
+  if (image.hasImage) {
+    return {
+      name: image.name || "记录图片",
+      type: image.type || "image/*",
+      size: Number(image.size) || 0,
+      originalSize: Number(image.originalSize) || 0,
+      hasImage: true,
+    };
+  }
+  return null;
 }
 
 function loadLegacyEntries() {
@@ -505,6 +543,26 @@ function resetImagePreview() {
   }
   image.removeAttribute("src");
   imagePreview.hidden = true;
+}
+
+async function openEntryImage(entry) {
+  if (entry.image?.dataUrl) {
+    openImagePreview(entry.image);
+    return;
+  }
+
+  try {
+    const data = await apiRequest(`/api/entries/${encodeURIComponent(entry.id)}/image`);
+    const image = data.image;
+    if (!image?.dataUrl) throw new Error("No image");
+
+    state.entries = state.entries.map((item) => (item.id === entry.id ? { ...item, image } : item));
+    saveLocalBackup(state.entries);
+    render();
+    openImagePreview(image);
+  } catch {
+    window.alert("图片加载失败，请稍后再试。");
+  }
 }
 
 function openImagePreview(image) {

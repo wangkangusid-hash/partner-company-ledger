@@ -69,6 +69,11 @@ async function handleApi(request, response, url) {
     return;
   }
 
+  if (url.pathname === "/api/export" && request.method === "GET") {
+    sendJson(response, 200, await readLedger({ includeImages: true }));
+    return;
+  }
+
   if (isEntriesPath(url.pathname) && request.method === "POST") {
     const payload = await readJsonBody(request);
     const entry = normalizeEntry(payload.entry || payload);
@@ -92,7 +97,18 @@ async function handleApi(request, response, url) {
     const entries = imported.map(normalizeEntry).filter(Boolean);
     const ledger = { entries, updatedAt: new Date().toISOString() };
     await writeLedger(ledger);
-    sendJson(response, 200, ledger);
+    sendJson(response, 200, await readLedger());
+    return;
+  }
+
+  const imageMatch = url.pathname.match(/^\/api\/entries\/([^/]+)\/image$/);
+  if (imageMatch && request.method === "GET") {
+    const image = await getEntryImage(decodeURIComponent(imageMatch[1]));
+    if (!image) {
+      sendJson(response, 404, { error: "image_not_found" });
+      return;
+    }
+    sendJson(response, 200, { image });
     return;
   }
 
@@ -115,14 +131,17 @@ function isEntriesPath(pathname) {
   return pathname === "/api/entries" || pathname === "/api/entries/";
 }
 
-async function readLedger() {
+async function readLedger(options = {}) {
+  const includeImages = Boolean(options.includeImages);
+
   if (hasSupabase()) {
     const rows = await supabaseRequest(
       `/${SUPABASE_TABLE}?select=*&order=created_at.desc`,
       { method: "GET" }
     );
+    const entries = rows.map(rowToEntry).filter(Boolean);
     return {
-      entries: rows.map(rowToEntry).filter(Boolean),
+      entries: includeImages ? entries : entries.map(stripEntryImage),
       updatedAt: rows[0]?.created_at || null,
     };
   }
@@ -132,8 +151,9 @@ async function readLedger() {
   try {
     const raw = await fs.readFile(DATA_FILE, "utf8");
     const data = JSON.parse(raw);
+    const entries = Array.isArray(data.entries) ? data.entries.map(normalizeEntry).filter(Boolean) : [];
     return {
-      entries: Array.isArray(data.entries) ? data.entries.map(normalizeEntry).filter(Boolean) : [],
+      entries: includeImages ? entries : entries.map(stripEntryImage),
       updatedAt: data.updatedAt || null,
     };
   } catch (error) {
@@ -172,10 +192,10 @@ async function writeLedger(ledger) {
 
 async function addEntry(entry) {
   if (!hasSupabase()) {
-    const ledger = await readLedger();
+    const ledger = await readLedger({ includeImages: true });
     ledger.entries.push(entry);
     await writeLedger(ledger);
-    return { entry, entries: ledger.entries };
+    return { entry };
   }
 
   const rows = await supabaseRequest(`/${SUPABASE_TABLE}`, {
@@ -183,24 +203,38 @@ async function addEntry(entry) {
     body: JSON.stringify(entryToRow(entry)),
     headers: { Prefer: "return=representation" },
   });
-  return { entry: rowToEntry(rows[0]) || entry, entries: (await readLedger()).entries };
+  return { entry: rowToEntry(rows[0]) || entry };
 }
 
 async function deleteEntry(id) {
   if (!hasSupabase()) {
-    const ledger = await readLedger();
+    const ledger = await readLedger({ includeImages: true });
     const before = ledger.entries.length;
     ledger.entries = ledger.entries.filter((entry) => entry.id !== id);
     ledger.updatedAt = new Date().toISOString();
     await writeLedger(ledger);
-    return { deleted: before !== ledger.entries.length, entries: ledger.entries };
+    return { deleted: before !== ledger.entries.length, id };
   }
 
   const rows = await supabaseRequest(`/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(id)}`, {
     method: "DELETE",
     headers: { Prefer: "return=representation" },
   });
-  return { deleted: rows.length > 0, entries: (await readLedger()).entries };
+  return { deleted: rows.length > 0, id };
+}
+
+async function getEntryImage(id) {
+  if (hasSupabase()) {
+    const rows = await supabaseRequest(
+      `/${SUPABASE_TABLE}?select=image&id=eq.${encodeURIComponent(id)}&limit=1`,
+      { method: "GET" }
+    );
+    return normalizeImage(rows[0]?.image);
+  }
+
+  const ledger = await readLedger({ includeImages: true });
+  const entry = ledger.entries.find((item) => item.id === id);
+  return normalizeImage(entry?.image);
 }
 
 function hasSupabase() {
@@ -252,6 +286,20 @@ function rowToEntry(row) {
     image: row.image,
     createdAt: row.created_at,
   });
+}
+
+function stripEntryImage(entry) {
+  if (!entry.image?.dataUrl) return entry;
+  return {
+    ...entry,
+    image: {
+      name: entry.image.name,
+      type: entry.image.type,
+      size: entry.image.size,
+      originalSize: entry.image.originalSize,
+      hasImage: true,
+    },
+  };
 }
 
 function entryToRow(entry) {

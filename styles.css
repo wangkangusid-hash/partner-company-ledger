@@ -448,6 +448,16 @@ textarea:focus {
   object-fit: cover;
 }
 
+.entry-image-button.image-placeholder {
+  display: inline-grid;
+  width: auto;
+  min-height: 34px;
+  padding: 0 12px;
+  place-items: center;
+  color: var(--accent);
+  font-weight: 700;
+}
+
 .entry-side {
   display: grid;
   justify-items: end;
