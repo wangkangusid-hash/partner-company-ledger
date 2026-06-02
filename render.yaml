@@ -9,3 +9,7 @@ services:
     envVars:
       - key: LEDGER_PASSWORD
         generateValue: true
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SECRET_KEY
+        sync: false

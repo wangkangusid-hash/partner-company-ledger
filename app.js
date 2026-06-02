@@ -1,12 +1,13 @@
 const LEGACY_STORAGE_KEY = "partner-company-ledger-v1";
 const PASSWORD_STORAGE_KEY = "partner-company-ledger-password";
+const LOCAL_BACKUP_KEY = "partner-company-ledger-online-backup-v1";
 const ENTRIES_API = "/api/entries/";
 
 const incomeCategories = ["销售收入", "服务费", "投资款", "退款", "其他收入"];
 const expenseCategories = ["采购", "房租", "工资", "差旅", "办公", "营销", "税费", "其他支出"];
 
 const state = {
-  entries: [],
+  entries: loadLocalBackup(),
   connected: false,
   password: localStorage.getItem(PASSWORD_STORAGE_KEY) || "",
 };
@@ -75,6 +76,7 @@ form.addEventListener("submit", async (event) => {
       body: JSON.stringify({ entry }),
     });
     state.entries = normalizeEntries(result.entries || [...state.entries, result.entry]);
+    saveLocalBackup(state.entries);
     setSyncState(true, "已同步", "这条明细已保存到同步账本");
     form.reset();
     dateInput.value = todayISO();
@@ -143,6 +145,7 @@ dayGroups.addEventListener("click", async (event) => {
     setBusy(true);
     const result = await apiRequest(`/api/entries/${encodeURIComponent(entry.id)}`, { method: "DELETE" });
     state.entries = normalizeEntries(result.entries || state.entries.filter((item) => item.id !== entry.id));
+    saveLocalBackup(state.entries);
     setSyncState(true, "已同步", "明细已删除");
     render();
   } catch (error) {
@@ -187,6 +190,7 @@ importInput.addEventListener("change", async () => {
       body: JSON.stringify({ entries }),
     });
     state.entries = normalizeEntries(result.entries);
+    saveLocalBackup(state.entries);
     setSyncState(true, "已同步", "导入数据已保存到同步账本");
     render();
   } catch {
@@ -202,7 +206,28 @@ async function loadServerEntries() {
     setBusy(true);
     setSyncState(false, "正在连接同步账本", "请稍候");
     const data = await apiRequest(ENTRIES_API);
-    state.entries = normalizeEntries(data.entries);
+    const serverEntries = normalizeEntries(data.entries);
+    const backupEntries = loadLocalBackup();
+
+    if (!serverEntries.length && backupEntries.length) {
+      const confirmed = window.confirm(
+        `同步账本现在是空的，但这台设备有 ${backupEntries.length} 条本地备份。是否恢复到同步账本？`
+      );
+      if (confirmed) {
+        const result = await apiRequest(ENTRIES_API, {
+          method: "PUT",
+          body: JSON.stringify({ entries: backupEntries }),
+        });
+        state.entries = normalizeEntries(result.entries);
+        saveLocalBackup(state.entries);
+        setSyncState(true, "已恢复同步账本", `已恢复 ${state.entries.length} 条记录`);
+        render();
+        return;
+      }
+    }
+
+    state.entries = serverEntries;
+    saveLocalBackup(state.entries);
     setSyncState(true, "已连接同步账本", `共 ${state.entries.length} 条记录`);
     maybeOfferLegacyImport();
     render();
@@ -268,6 +293,7 @@ async function maybeOfferLegacyImport() {
     body: JSON.stringify({ entries: legacyEntries }),
   });
   state.entries = normalizeEntries(result.entries);
+  saveLocalBackup(state.entries);
   localStorage.removeItem(LEGACY_STORAGE_KEY);
   setSyncState(true, "已连接同步账本", `已导入 ${state.entries.length} 条旧记录`);
 }
@@ -390,6 +416,19 @@ function loadLegacyEntries() {
   } catch {
     return [];
   }
+}
+
+function loadLocalBackup() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(LOCAL_BACKUP_KEY) || "[]");
+    return Array.isArray(saved) ? normalizeEntries(saved) : [];
+  } catch {
+    return [];
+  }
+}
+
+function saveLocalBackup(entries) {
+  localStorage.setItem(LOCAL_BACKUP_KEY, JSON.stringify(normalizeEntries(entries)));
 }
 
 function isValidEntry(entry) {

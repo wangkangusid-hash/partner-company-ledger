@@ -6,6 +6,9 @@ const crypto = require("node:crypto");
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || "0.0.0.0";
 const PASSWORD = process.env.LEDGER_PASSWORD || "";
+const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
+const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "ledger_entries";
 const ROOT_DIR = __dirname;
 const DATA_DIR = path.join(ROOT_DIR, "data");
 const DATA_FILE = path.join(DATA_DIR, "ledger.json");
@@ -48,7 +51,11 @@ server.listen(PORT, HOST, () => {
 
 async function handleApi(request, response, url) {
   if (url.pathname === "/api/health" && request.method === "GET") {
-    sendJson(response, 200, { ok: true, authRequired: Boolean(PASSWORD) });
+    sendJson(response, 200, {
+      ok: true,
+      authRequired: Boolean(PASSWORD),
+      storage: hasSupabase() ? "supabase" : "file",
+    });
     return;
   }
 
@@ -70,10 +77,7 @@ async function handleApi(request, response, url) {
       return;
     }
 
-    const ledger = await readLedger();
-    ledger.entries.push(entry);
-    await writeLedger(ledger);
-    sendJson(response, 201, { entry, entries: ledger.entries });
+    sendJson(response, 201, await addEntry(entry));
     return;
   }
 
@@ -95,12 +99,7 @@ async function handleApi(request, response, url) {
   const deleteMatch = url.pathname.match(/^\/api\/entries\/([^/]+)$/);
   if (deleteMatch && request.method === "DELETE") {
     const id = decodeURIComponent(deleteMatch[1]);
-    const ledger = await readLedger();
-    const before = ledger.entries.length;
-    ledger.entries = ledger.entries.filter((entry) => entry.id !== id);
-    ledger.updatedAt = new Date().toISOString();
-    await writeLedger(ledger);
-    sendJson(response, 200, { deleted: before !== ledger.entries.length, entries: ledger.entries });
+    sendJson(response, 200, await deleteEntry(id));
     return;
   }
 
@@ -117,6 +116,17 @@ function isEntriesPath(pathname) {
 }
 
 async function readLedger() {
+  if (hasSupabase()) {
+    const rows = await supabaseRequest(
+      `/${SUPABASE_TABLE}?select=*&order=created_at.desc`,
+      { method: "GET" }
+    );
+    return {
+      entries: rows.map(rowToEntry).filter(Boolean),
+      updatedAt: rows[0]?.created_at || null,
+    };
+  }
+
   await fs.mkdir(DATA_DIR, { recursive: true });
 
   try {
@@ -135,6 +145,21 @@ async function readLedger() {
 }
 
 async function writeLedger(ledger) {
+  if (hasSupabase()) {
+    const entries = Array.isArray(ledger.entries) ? ledger.entries.map(normalizeEntry).filter(Boolean) : [];
+    await supabaseRequest(`/${SUPABASE_TABLE}?id=neq.00000000-0000-0000-0000-000000000000`, {
+      method: "DELETE",
+    });
+    if (entries.length) {
+      await supabaseRequest(`/${SUPABASE_TABLE}`, {
+        method: "POST",
+        body: JSON.stringify(entries.map(entryToRow)),
+        headers: { Prefer: "return=minimal" },
+      });
+    }
+    return;
+  }
+
   await fs.mkdir(DATA_DIR, { recursive: true });
   const nextLedger = {
     entries: Array.isArray(ledger.entries) ? ledger.entries : [],
@@ -143,6 +168,103 @@ async function writeLedger(ledger) {
   const tempFile = `${DATA_FILE}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(tempFile, `${JSON.stringify(nextLedger, null, 2)}\n`);
   await fs.rename(tempFile, DATA_FILE);
+}
+
+async function addEntry(entry) {
+  if (!hasSupabase()) {
+    const ledger = await readLedger();
+    ledger.entries.push(entry);
+    await writeLedger(ledger);
+    return { entry, entries: ledger.entries };
+  }
+
+  const rows = await supabaseRequest(`/${SUPABASE_TABLE}`, {
+    method: "POST",
+    body: JSON.stringify(entryToRow(entry)),
+    headers: { Prefer: "return=representation" },
+  });
+  return { entry: rowToEntry(rows[0]) || entry, entries: (await readLedger()).entries };
+}
+
+async function deleteEntry(id) {
+  if (!hasSupabase()) {
+    const ledger = await readLedger();
+    const before = ledger.entries.length;
+    ledger.entries = ledger.entries.filter((entry) => entry.id !== id);
+    ledger.updatedAt = new Date().toISOString();
+    await writeLedger(ledger);
+    return { deleted: before !== ledger.entries.length, entries: ledger.entries };
+  }
+
+  const rows = await supabaseRequest(`/${SUPABASE_TABLE}?id=eq.${encodeURIComponent(id)}`, {
+    method: "DELETE",
+    headers: { Prefer: "return=representation" },
+  });
+  return { deleted: rows.length > 0, entries: (await readLedger()).entries };
+}
+
+function hasSupabase() {
+  return Boolean(SUPABASE_URL && SUPABASE_SECRET_KEY);
+}
+
+async function supabaseRequest(pathname, options = {}) {
+  const authHeaders = {
+    apikey: SUPABASE_SECRET_KEY,
+  };
+  if (isJwtKey(SUPABASE_SECRET_KEY)) {
+    authHeaders.Authorization = `Bearer ${SUPABASE_SECRET_KEY}`;
+  }
+
+  const response = await fetch(`${SUPABASE_URL}/rest/v1${pathname}`, {
+    ...options,
+    headers: {
+      ...authHeaders,
+      "Content-Type": "application/json",
+      ...(options.headers || {}),
+    },
+  });
+
+  if (!response.ok) {
+    const errorText = await response.text();
+    const error = new Error(`supabase_error: ${errorText || response.status}`);
+    error.statusCode = response.status >= 400 && response.status < 500 ? 400 : 500;
+    throw error;
+  }
+
+  if (response.status === 204) return [];
+  const text = await response.text();
+  return text ? JSON.parse(text) : [];
+}
+
+function isJwtKey(key) {
+  return key.split(".").length === 3;
+}
+
+function rowToEntry(row) {
+  if (!row) return null;
+  return normalizeEntry({
+    id: row.id,
+    date: row.entry_date,
+    type: row.entry_type,
+    amount: row.amount,
+    category: row.category,
+    note: row.note,
+    image: row.image,
+    createdAt: row.created_at,
+  });
+}
+
+function entryToRow(entry) {
+  return {
+    id: entry.id,
+    entry_date: entry.date,
+    entry_type: entry.type,
+    amount: entry.amount,
+    category: entry.category,
+    note: entry.note,
+    image: entry.image,
+    created_at: entry.createdAt,
+  };
 }
 
 function normalizeEntry(entry) {

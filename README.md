@@ -40,9 +40,11 @@ node server.js
 ```text
 LEDGER_PASSWORD=你的访问密码
 PORT=平台提供的端口
+SUPABASE_URL=你的 Supabase Project URL
+SUPABASE_SECRET_KEY=你的 Supabase secret key 或 service_role key
 ```
 
-重要：账本保存在服务器的 `data/ledger.json`。如果部署平台的文件系统会在重启或重新部署后清空，请选择带持久磁盘的服务，或部署在自己的 VPS 上。
+重要：如果没有配置 Supabase，账本会保存在服务器的 `data/ledger.json`。这不适合 Render 免费服务长期使用，因为重启或重新部署可能清空文件。配置 Supabase 后，账本会保存到数据库。
 
 ### Render 快速部署
 
@@ -52,7 +54,22 @@ PORT=平台提供的端口
 4. Render 会读取 `render.yaml`。
 5. 部署完成后，在 Render 的 Environment 页面查看自动生成的 `LEDGER_PASSWORD`。
 
-注意：Render 免费 Web Service 的本地文件不适合作为长期唯一数据源。正式长期使用时，建议换成持久数据库或带持久磁盘的服务。
+注意：Render 免费 Web Service 的本地文件不适合作为长期唯一数据源。正式长期使用时，建议配置 Supabase。
+
+## Supabase 数据库
+
+1. 在 Supabase 新建项目。
+2. 打开 SQL Editor，运行 `supabase-schema.sql`。
+3. 在 Supabase 的 Project Settings 里找到 Project URL。
+4. 在 API Keys 里找到 secret key，或者 legacy service_role key。
+5. 到 Render 的 Environment 页面添加：
+
+```text
+SUPABASE_URL=你的 Project URL
+SUPABASE_SECRET_KEY=你的 secret key 或 service_role key
+```
+
+保存后 Render 会重新部署。打开 `/api/health`，如果返回 `"storage":"supabase"`，说明已经切到数据库存储。
 
 ## 数据备份
 
