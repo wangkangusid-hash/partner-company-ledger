@@ -1,5 +1,4 @@
 const LEGACY_STORAGE_KEY = "partner-company-ledger-v1";
-const PASSWORD_STORAGE_KEY = "partner-company-ledger-password";
 const LOCAL_BACKUP_KEY = "partner-company-ledger-online-backup-v1";
 const ENTRIES_API = "/api/entries/";
 
@@ -9,7 +8,6 @@ const expenseCategories = ["采购", "房租", "工资", "差旅", "办公", "�
 const state = {
   entries: loadLocalBackup(),
   connected: false,
-  password: localStorage.getItem(PASSWORD_STORAGE_KEY) || "",
 };
 
 const form = document.querySelector("#entryForm");
@@ -30,14 +28,11 @@ const importInput = document.querySelector("#importInput");
 const clearFiltersBtn = document.querySelector("#clearFiltersBtn");
 const syncStatus = document.querySelector("#syncStatus");
 const syncMessage = document.querySelector("#syncMessage");
-const passwordInput = document.querySelector("#passwordInput");
-const connectBtn = document.querySelector("#connectBtn");
 const refreshBtn = document.querySelector("#refreshBtn");
 const dayTemplate = document.querySelector("#dayTemplate");
 const entryTemplate = document.querySelector("#entryTemplate");
 
 dateInput.value = todayISO();
-passwordInput.value = state.password;
 updateCategories();
 render();
 loadServerEntries();
@@ -84,7 +79,7 @@ form.addEventListener("submit", async (event) => {
     updateCategories();
     render();
   } catch (error) {
-    handleApiError(error, "保存失败，请检查同步服务器或访问密码。");
+    handleApiError(error, "保存失败，请检查同步服务器。");
   } finally {
     setBusy(false);
   }
@@ -123,12 +118,6 @@ clearFiltersBtn.addEventListener("click", () => {
   render();
 });
 
-connectBtn.addEventListener("click", () => {
-  state.password = passwordInput.value.trim();
-  localStorage.setItem(PASSWORD_STORAGE_KEY, state.password);
-  loadServerEntries();
-});
-
 refreshBtn.addEventListener("click", loadServerEntries);
 
 dayGroups.addEventListener("click", async (event) => {
@@ -149,7 +138,7 @@ dayGroups.addEventListener("click", async (event) => {
     setSyncState(true, "已同步", "明细已删除");
     render();
   } catch (error) {
-    handleApiError(error, "删除失败，请检查同步服务器或访问密码。");
+    handleApiError(error, "删除失败，请检查同步服务器。");
   } finally {
     setBusy(false);
   }
@@ -232,7 +221,7 @@ async function loadServerEntries() {
     maybeOfferLegacyImport();
     render();
   } catch (error) {
-    handleApiError(error, "未连接同步账本。请确认使用 node server.js 启动，并检查访问密码。");
+    handleApiError(error, "未连接同步账本，请稍后刷新重试。");
     render();
   } finally {
     setBusy(false);
@@ -244,7 +233,6 @@ async function apiRequest(path, options = {}) {
     ...options,
     headers: {
       "content-type": "application/json",
-      ...(state.password ? { "x-ledger-password": state.password } : {}),
       ...(options.headers || {}),
     },
   });
@@ -260,8 +248,7 @@ async function apiRequest(path, options = {}) {
 
 function handleApiError(error, message) {
   if (error.status === 401) {
-    setSyncState(false, "需要访问密码", "请输入服务器设置的访问密码后连接");
-    passwordInput.focus();
+    setSyncState(false, "同步需要访问密码", "请在 Render 删除 LEDGER_PASSWORD，或恢复页面密码输入框");
     return;
   }
 
@@ -277,7 +264,6 @@ function setSyncState(connected, title, message) {
 
 function setBusy(isBusy) {
   form.querySelector("button[type='submit']").disabled = isBusy;
-  connectBtn.disabled = isBusy;
   refreshBtn.disabled = isBusy;
 }
 
@@ -448,6 +434,14 @@ function readImageFile(file) {
     return null;
   }
 
+  if (file.type === "image/gif") {
+    return readOriginalImageFile(file);
+  }
+
+  return compressImageFile(file).catch(() => readOriginalImageFile(file));
+}
+
+function readOriginalImageFile(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.addEventListener("load", () => {
@@ -461,6 +455,47 @@ function readImageFile(file) {
     reader.addEventListener("error", () => reject(reader.error));
     reader.readAsDataURL(file);
   });
+}
+
+function compressImageFile(file) {
+  const maxSide = 1280;
+  const quality = 0.78;
+
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.addEventListener("error", () => reject(reader.error));
+    reader.addEventListener("load", () => {
+      const image = new Image();
+      image.addEventListener("error", reject);
+      image.addEventListener("load", () => {
+        const scale = Math.min(1, maxSide / Math.max(image.naturalWidth, image.naturalHeight));
+        const width = Math.max(1, Math.round(image.naturalWidth * scale));
+        const height = Math.max(1, Math.round(image.naturalHeight * scale));
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+
+        const context = canvas.getContext("2d");
+        context.drawImage(image, 0, 0, width, height);
+
+        const dataUrl = canvas.toDataURL("image/jpeg", quality);
+        resolve({
+          name: file.name.replace(/\.[^.]+$/, ".jpg"),
+          type: "image/jpeg",
+          size: estimateDataUrlBytes(dataUrl),
+          originalSize: file.size,
+          dataUrl,
+        });
+      });
+      image.src = reader.result;
+    });
+    reader.readAsDataURL(file);
+  });
+}
+
+function estimateDataUrlBytes(dataUrl) {
+  const base64 = dataUrl.split(",")[1] || "";
+  return Math.round((base64.length * 3) / 4);
 }
 
 function resetImagePreview() {
