@@ -6,7 +6,7 @@ const crypto = require("node:crypto");
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || "0.0.0.0";
 const PASSWORD = process.env.LEDGER_PASSWORD || "";
-const SUPABASE_URL = (process.env.SUPABASE_URL || "").replace(/\/$/, "");
+const SUPABASE_URL = normalizeSupabaseUrl(process.env.SUPABASE_URL || "");
 const SUPABASE_SECRET_KEY = process.env.SUPABASE_SECRET_KEY || process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 const SUPABASE_TABLE = process.env.SUPABASE_TABLE || "ledger_entries";
 const ROOT_DIR = __dirname;
@@ -38,7 +38,7 @@ const server = http.createServer(async (request, response) => {
     await serveStatic(url, response);
   } catch (error) {
     console.error(error);
-    sendJson(response, error.statusCode || 500, { error: error.statusCode ? error.message : "server_error" });
+    sendJson(response, error.statusCode || 500, { error: error.message || "server_error" });
   }
 });
 
@@ -135,13 +135,16 @@ async function readLedger(options = {}) {
   const includeImages = Boolean(options.includeImages);
 
   if (hasSupabase()) {
+    const select = includeImages
+      ? "*"
+      : "id,entry_date,entry_type,amount,category,note,created_at";
     const rows = await supabaseRequest(
-      `/${SUPABASE_TABLE}?select=*&order=created_at.desc`,
+      `/${SUPABASE_TABLE}?select=${encodeURIComponent(select)}&order=created_at.desc`,
       { method: "GET" }
     );
-    const entries = rows.map(rowToEntry).filter(Boolean);
+    const entries = rows.map((row) => rowToEntry(row, { includeImages })).filter(Boolean);
     return {
-      entries: includeImages ? entries : entries.map(stripEntryImage),
+      entries,
       updatedAt: rows[0]?.created_at || null,
     };
   }
@@ -241,6 +244,13 @@ function hasSupabase() {
   return Boolean(SUPABASE_URL && SUPABASE_SECRET_KEY);
 }
 
+function normalizeSupabaseUrl(value) {
+  return String(value)
+    .trim()
+    .replace(/\/+$/, "")
+    .replace(/\/rest\/v1$/i, "");
+}
+
 async function supabaseRequest(pathname, options = {}) {
   const authHeaders = {
     apikey: SUPABASE_SECRET_KEY,
@@ -274,8 +284,9 @@ function isJwtKey(key) {
   return key.split(".").length === 3;
 }
 
-function rowToEntry(row) {
+function rowToEntry(row, options = {}) {
   if (!row) return null;
+  const image = options.includeImages ? row.image : null;
   return normalizeEntry({
     id: row.id,
     date: row.entry_date,
@@ -283,7 +294,7 @@ function rowToEntry(row) {
     amount: row.amount,
     category: row.category,
     note: row.note,
-    image: row.image,
+    image,
     createdAt: row.created_at,
   });
 }
@@ -344,6 +355,7 @@ function normalizeImage(image) {
     name: typeof image.name === "string" ? image.name : "记录图片",
     type: typeof image.type === "string" ? image.type : "image/*",
     size: Number.isFinite(Number(image.size)) ? Number(image.size) : 0,
+    originalSize: Number.isFinite(Number(image.originalSize)) ? Number(image.originalSize) : 0,
     dataUrl: image.dataUrl,
   };
 }
