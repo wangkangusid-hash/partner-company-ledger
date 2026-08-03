@@ -96,7 +96,7 @@ document.querySelector("#resetFormBtn").addEventListener("click", () => {
 });
 
 imageInput.addEventListener("change", () => {
-  renderSelectedImagePreview(imageInput.files);
+  setImageFiles(imageInput.files);
 });
 
 ["dragenter", "dragover"].forEach((eventName) => {
@@ -117,10 +117,7 @@ imageDropzone.addEventListener("drop", (event) => {
   const files = [...(event.dataTransfer?.files || [])].filter((file) => file.type.startsWith("image/"));
   if (!files.length) return;
 
-  const transfer = new DataTransfer();
-  files.forEach((file) => transfer.items.add(file));
-  imageInput.files = transfer.files;
-  renderSelectedImagePreview(imageInput.files);
+  setImageFiles(files, { append: true });
 });
 
 [fromDate, toDate, typeFilter, searchInput].forEach((control) => {
@@ -562,6 +559,25 @@ function compressImageFile(file) {
 function estimateDataUrlBytes(dataUrl) {
   const base64 = dataUrl.split(",")[1] || "";
   return Math.round((base64.length * 3) / 4);
+}
+
+function setImageFiles(fileList, options = {}) {
+  const incomingFiles = [...(fileList || [])].filter((file) => file.type.startsWith("image/"));
+  const currentFiles = options.append ? [...(imageInput.files || [])] : [];
+  const uniqueFiles = [];
+  const seen = new Set();
+
+  [...currentFiles, ...incomingFiles].forEach((file) => {
+    const key = `${file.name}-${file.size}-${file.lastModified}`;
+    if (seen.has(key)) return;
+    seen.add(key);
+    uniqueFiles.push(file);
+  });
+
+  const transfer = new DataTransfer();
+  uniqueFiles.forEach((file) => transfer.items.add(file));
+  imageInput.files = transfer.files;
+  renderSelectedImagePreview(imageInput.files);
 }
 
 function renderSelectedImagePreview(fileList) {
