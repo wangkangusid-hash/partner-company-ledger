@@ -300,6 +300,27 @@ textarea:focus {
   background: var(--accent-dark);
 }
 
+.image-dropzone {
+  border: 1px dashed var(--line);
+  background: #f9fafb;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease,
+    box-shadow 0.15s ease;
+}
+
+.image-dropzone span {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.image-dropzone.is-dragging {
+  border-color: var(--accent);
+  background: #eef6ff;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+}
+
 .image-preview {
   margin: 0;
   border: 1px solid var(--line);

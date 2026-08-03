@@ -17,6 +17,7 @@ const amountInput = document.querySelector("#amountInput");
 const categoryInput = document.querySelector("#categoryInput");
 const noteInput = document.querySelector("#noteInput");
 const imageInput = document.querySelector("#imageInput");
+const imageDropzone = document.querySelector("#imageDropzone");
 const imagePreview = document.querySelector("#imagePreview");
 const dayGroups = document.querySelector("#dayGroups");
 const emptyState = document.querySelector("#emptyState");
@@ -95,21 +96,31 @@ document.querySelector("#resetFormBtn").addEventListener("click", () => {
 });
 
 imageInput.addEventListener("change", () => {
-  const files = [...(imageInput.files || [])];
-  if (!files.length) {
-    resetImagePreview();
-    return;
-  }
+  renderSelectedImagePreview(imageInput.files);
+});
 
-  resetImagePreview();
-  const previewGrid = imagePreview.querySelector(".image-preview-grid");
-  files.forEach((file) => {
-    const image = document.createElement("img");
-    image.alt = file.name;
-    image.src = URL.createObjectURL(file);
-    previewGrid.appendChild(image);
+["dragenter", "dragover"].forEach((eventName) => {
+  imageDropzone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    imageDropzone.classList.add("is-dragging");
   });
-  imagePreview.hidden = false;
+});
+
+["dragleave", "drop"].forEach((eventName) => {
+  imageDropzone.addEventListener(eventName, (event) => {
+    event.preventDefault();
+    imageDropzone.classList.remove("is-dragging");
+  });
+});
+
+imageDropzone.addEventListener("drop", (event) => {
+  const files = [...(event.dataTransfer?.files || [])].filter((file) => file.type.startsWith("image/"));
+  if (!files.length) return;
+
+  const transfer = new DataTransfer();
+  files.forEach((file) => transfer.items.add(file));
+  imageInput.files = transfer.files;
+  renderSelectedImagePreview(imageInput.files);
 });
 
 [fromDate, toDate, typeFilter, searchInput].forEach((control) => {
@@ -551,6 +562,24 @@ function compressImageFile(file) {
 function estimateDataUrlBytes(dataUrl) {
   const base64 = dataUrl.split(",")[1] || "";
   return Math.round((base64.length * 3) / 4);
+}
+
+function renderSelectedImagePreview(fileList) {
+  const files = [...(fileList || [])].filter((file) => file.type.startsWith("image/"));
+  if (!files.length) {
+    resetImagePreview();
+    return;
+  }
+
+  resetImagePreview();
+  const previewGrid = imagePreview.querySelector(".image-preview-grid");
+  files.forEach((file) => {
+    const image = document.createElement("img");
+    image.alt = file.name;
+    image.src = URL.createObjectURL(file);
+    previewGrid.appendChild(image);
+  });
+  imagePreview.hidden = false;
 }
 
 function resetImagePreview() {
