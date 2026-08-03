@@ -91,10 +91,10 @@
 
           <label>
             上传图片
-            <input id="imageInput" name="image" type="file" accept="image/*" />
+            <input id="imageInput" name="images" type="file" accept="image/*" multiple />
           </label>
           <figure class="image-preview" id="imagePreview" hidden>
-            <img alt="待保存图片预览" />
+            <div class="image-preview-grid"></div>
             <figcaption>图片会随这条记录一起保存</figcaption>
           </figure>
 
@@ -157,9 +157,7 @@
             <strong class="entry-category"></strong>
             <p class="entry-meta"></p>
             <p class="entry-note"></p>
-            <button type="button" class="entry-image-button" hidden>
-              <img alt="记录图片" />
-            </button>
+            <div class="entry-images"></div>
           </div>
         </div>
         <div class="entry-side">

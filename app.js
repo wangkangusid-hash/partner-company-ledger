@@ -61,7 +61,7 @@ form.addEventListener("submit", async (event) => {
     amount: roundMoney(amount),
     category: formData.get("category"),
     note: formData.get("note").trim(),
-    image: await readImageFile(imageInput.files?.[0]),
+    images: await readImageFiles(imageInput.files),
     createdAt: new Date().toISOString(),
   };
 
@@ -95,15 +95,20 @@ document.querySelector("#resetFormBtn").addEventListener("click", () => {
 });
 
 imageInput.addEventListener("change", () => {
-  const file = imageInput.files?.[0];
-  if (!file) {
+  const files = [...(imageInput.files || [])];
+  if (!files.length) {
     resetImagePreview();
     return;
   }
 
   resetImagePreview();
-  const previewUrl = URL.createObjectURL(file);
-  imagePreview.querySelector("img").src = previewUrl;
+  const previewGrid = imagePreview.querySelector(".image-preview-grid");
+  files.forEach((file) => {
+    const image = document.createElement("img");
+    image.alt = file.name;
+    image.src = URL.createObjectURL(file);
+    previewGrid.appendChild(image);
+  });
   imagePreview.hidden = false;
 });
 
@@ -149,7 +154,7 @@ exportBtn.addEventListener("click", async () => {
   let entries = state.entries;
   try {
     const data = await apiRequest(EXPORT_API);
-    entries = normalizeEntries(data.entries || entries);
+    entries = normalizeEntries(data.entries || entries, { includeImages: true });
   } catch {
     window.alert("完整导出失败，将导出当前页面已加载的数据。");
   }
@@ -354,19 +359,7 @@ function createEntryNode(entry) {
     minute: "2-digit",
   });
   node.querySelector(".entry-note").textContent = entry.note || "无备注";
-  const imageButton = node.querySelector(".entry-image-button");
-  if (entry.image?.dataUrl) {
-    imageButton.hidden = false;
-    imageButton.querySelector("img").src = entry.image.dataUrl;
-    imageButton.title = entry.image.name || "查看记录图片";
-    imageButton.addEventListener("click", () => openEntryImage(entry));
-  } else if (entry.image?.hasImage) {
-    imageButton.hidden = false;
-    imageButton.classList.add("image-placeholder");
-    imageButton.textContent = "查看图片";
-    imageButton.title = entry.image.name || "查看记录图片";
-    imageButton.addEventListener("click", () => openEntryImage(entry));
-  }
+  renderEntryImages(node.querySelector(".entry-images"), entry);
   node.querySelector(".entry-amount").textContent =
     entry.type === "income" ? formatSignedMoney(entry.amount) : formatSignedMoney(-entry.amount);
   node.querySelector(".delete-button").dataset.id = entry.id;
@@ -379,7 +372,7 @@ function getFilteredEntries() {
     const afterFrom = !fromDate.value || entry.date >= fromDate.value;
     const beforeTo = !toDate.value || entry.date <= toDate.value;
     const matchesType = typeFilter.value === "all" || entry.type === typeFilter.value;
-    const text = `${entry.category} ${entry.note} ${entry.image?.name || ""}`.toLowerCase();
+    const text = `${entry.category} ${entry.note} ${entry.images.map((image) => image.name).join(" ")}`.toLowerCase();
     return afterFrom && beforeTo && matchesType && (!keyword || text.includes(keyword));
   });
 }
@@ -397,7 +390,7 @@ function updateCategories() {
   );
 }
 
-function normalizeEntries(entries) {
+function normalizeEntries(entries, options = {}) {
   return entries.filter(isValidEntry).map((entry) => ({
     id: entry.id || crypto.randomUUID(),
     date: String(entry.date).slice(0, 10),
@@ -405,7 +398,7 @@ function normalizeEntries(entries) {
     amount: roundMoney(Number(entry.amount)),
     category: entry.category || "未分类",
     note: typeof entry.note === "string" ? entry.note : "",
-    image: normalizeClientImage(entry.image),
+    images: normalizeClientImages(entry.images || entry.image, options),
     createdAt: entry.createdAt || new Date().toISOString(),
   }));
 }
@@ -418,19 +411,32 @@ function upsertEntry(entries, nextEntry) {
   return [normalized, ...rest];
 }
 
-function normalizeClientImage(image) {
-  if (!image || typeof image !== "object") return null;
-  if (image.dataUrl) return image;
-  if (image.hasImage) {
-    return {
-      name: image.name || "记录图片",
-      type: image.type || "image/*",
-      size: Number(image.size) || 0,
-      originalSize: Number(image.originalSize) || 0,
-      hasImage: true,
-    };
-  }
-  return null;
+function normalizeClientImages(value, options = {}) {
+  const rawImages = Array.isArray(value) ? value : value ? [value] : [];
+  return rawImages
+    .filter((image) => image && typeof image === "object")
+    .map((image) => {
+      if (image.dataUrl && options.includeImages !== false) {
+        return {
+          name: image.name || "记录图片",
+          type: image.type || "image/*",
+          size: Number(image.size) || 0,
+          originalSize: Number(image.originalSize) || 0,
+          dataUrl: image.dataUrl,
+        };
+      }
+      if (image.hasImage || image.name || image.count) {
+        return {
+          name: image.name || "记录图片",
+          type: image.type || "image/*",
+          size: Number(image.size) || 0,
+          originalSize: Number(image.originalSize) || 0,
+          hasImage: true,
+        };
+      }
+      return null;
+    })
+    .filter(Boolean);
 }
 
 function loadLegacyEntries() {
@@ -463,6 +469,17 @@ function isValidEntry(entry) {
     Number(entry.amount) > 0 &&
     typeof entry.category === "string"
   );
+}
+
+async function readImageFiles(fileList) {
+  const files = [...(fileList || [])].filter((file) => file.type.startsWith("image/"));
+  if (!files.length) return [];
+
+  const images = [];
+  for (const file of files) {
+    images.push(await readImageFile(file));
+  }
+  return images.filter(Boolean);
 }
 
 function readImageFile(file) {
@@ -537,37 +554,72 @@ function estimateDataUrlBytes(dataUrl) {
 }
 
 function resetImagePreview() {
-  const image = imagePreview.querySelector("img");
-  if (image.src.startsWith("blob:")) {
-    URL.revokeObjectURL(image.src);
-  }
-  image.removeAttribute("src");
+  imagePreview.querySelectorAll("img").forEach((image) => {
+    if (image.src.startsWith("blob:")) {
+      URL.revokeObjectURL(image.src);
+    }
+  });
+  imagePreview.querySelector(".image-preview-grid").replaceChildren();
   imagePreview.hidden = true;
 }
 
-async function openEntryImage(entry) {
-  if (entry.image?.dataUrl) {
-    openImagePreview(entry.image);
+function renderEntryImages(container, entry) {
+  container.replaceChildren();
+  if (!entry.images.length) return;
+
+  const loadedImages = entry.images.filter((image) => image.dataUrl);
+  if (loadedImages.length) {
+    loadedImages.forEach((image, index) => {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "entry-image-button";
+      button.title = image.name || "查看记录图片";
+      const thumbnail = document.createElement("img");
+      thumbnail.alt = image.name || `记录图片 ${index + 1}`;
+      thumbnail.src = image.dataUrl;
+      button.appendChild(thumbnail);
+      button.addEventListener("click", () => openImagePreview(loadedImages, index));
+      container.appendChild(button);
+    });
     return;
   }
 
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "entry-image-button image-placeholder";
+  button.textContent = `查看图片 (${entry.images.length})`;
+  button.addEventListener("click", () => openEntryImages(entry));
+  container.appendChild(button);
+}
+
+async function openEntryImages(entry) {
   try {
     const data = await apiRequest(`/api/entries/${encodeURIComponent(entry.id)}/image`);
-    const image = data.image;
-    if (!image?.dataUrl) throw new Error("No image");
+    const images = normalizeClientImages(data.images || data.image, { includeImages: true });
+    if (!images.length) throw new Error("No image");
 
-    state.entries = state.entries.map((item) => (item.id === entry.id ? { ...item, image } : item));
+    state.entries = state.entries.map((item) => (item.id === entry.id ? { ...item, images } : item));
     saveLocalBackup(state.entries);
     render();
-    openImagePreview(image);
+    openImagePreview(images);
   } catch {
     window.alert("图片加载失败，请稍后再试。");
   }
 }
 
-function openImagePreview(image) {
+function openImagePreview(images, startIndex = 0) {
+  const imageList = Array.isArray(images) ? images : [images];
   const previewWindow = window.open("", "_blank");
   if (!previewWindow) return;
+
+  const imageMarkup = imageList
+    .map((image, index) => {
+      return `<figure>
+        <img src="${image.dataUrl}" alt="${escapeHtml(image.name || `记录图片 ${index + 1}`)}" />
+        <figcaption>${index + 1} / ${imageList.length} ${escapeHtml(image.name || "")}</figcaption>
+      </figure>`;
+    })
+    .join("");
 
   previewWindow.document.write(`
     <!doctype html>
@@ -575,14 +627,17 @@ function openImagePreview(image) {
       <head>
         <meta charset="UTF-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-        <title>${escapeHtml(image.name || "记录图片")}</title>
+        <title>记录图片</title>
         <style>
-          body { margin: 0; min-height: 100vh; display: grid; place-items: center; background: #111820; }
-          img { max-width: 100vw; max-height: 100vh; object-fit: contain; }
+          body { margin: 0; min-height: 100vh; background: #111820; color: #fff; font-family: system-ui, sans-serif; }
+          figure { min-height: 100vh; margin: 0; display: grid; place-items: center; padding: 16px; }
+          img { max-width: 100%; max-height: 88vh; object-fit: contain; }
+          figcaption { color: #d7dde4; padding: 10px; }
         </style>
       </head>
       <body>
-        <img src="${image.dataUrl}" alt="${escapeHtml(image.name || "记录图片")}" />
+        ${imageMarkup}
+        <script>document.querySelectorAll('figure')[${startIndex}]?.scrollIntoView();</script>
       </body>
     </html>
   `);

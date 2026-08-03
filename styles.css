@@ -308,11 +308,19 @@ textarea:focus {
   background: #f9fafb;
 }
 
+.image-preview-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(78px, 1fr));
+  gap: 8px;
+  padding: 8px;
+}
+
 .image-preview img {
   display: block;
   width: 100%;
-  max-height: 180px;
+  aspect-ratio: 4 / 3;
   object-fit: cover;
+  border-radius: 6px;
 }
 
 .image-preview figcaption {
@@ -430,10 +438,16 @@ textarea:focus {
   margin-top: 4px;
 }
 
+.entry-images {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
 .entry-image-button {
   display: block;
-  width: min(180px, 100%);
-  margin-top: 10px;
+  width: 82px;
   padding: 0;
   border: 1px solid var(--line);
   border-radius: 8px;

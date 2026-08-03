@@ -55,7 +55,13 @@ async function handleApi(request, response, url) {
       ok: true,
       authRequired: Boolean(PASSWORD),
       storage: hasSupabase() ? "supabase" : "file",
+      supabaseHost: getSupabaseHost(),
     });
+    return;
+  }
+
+  if (url.pathname === "/api/debug" && request.method === "GET") {
+    sendJson(response, 200, await getDebugInfo());
     return;
   }
 
@@ -103,12 +109,12 @@ async function handleApi(request, response, url) {
 
   const imageMatch = url.pathname.match(/^\/api\/entries\/([^/]+)\/image$/);
   if (imageMatch && request.method === "GET") {
-    const image = await getEntryImage(decodeURIComponent(imageMatch[1]));
-    if (!image) {
+    const images = await getEntryImages(decodeURIComponent(imageMatch[1]));
+    if (!images.length) {
       sendJson(response, 404, { error: "image_not_found" });
       return;
     }
-    sendJson(response, 200, { image });
+    sendJson(response, 200, { images });
     return;
   }
 
@@ -137,11 +143,8 @@ async function readLedger(options = {}) {
   if (hasSupabase()) {
     const select = includeImages
       ? "*"
-      : "id,entry_date,entry_type,amount,category,note,created_at";
-    const rows = await supabaseRequest(
-      `/${SUPABASE_TABLE}?select=${encodeURIComponent(select)}&order=created_at.desc`,
-      { method: "GET" }
-    );
+      : "id,entry_date,entry_type,amount,category,note,created_at,image_meta";
+    const rows = await readSupabaseRows(select, { includeImages });
     const entries = rows.map((row) => rowToEntry(row, { includeImages })).filter(Boolean);
     return {
       entries,
@@ -164,6 +167,22 @@ async function readLedger(options = {}) {
     const ledger = { entries: [], updatedAt: new Date().toISOString() };
     await writeLedger(ledger);
     return ledger;
+  }
+}
+
+async function readSupabaseRows(select, options = {}) {
+  try {
+    return await supabaseRequest(`/${SUPABASE_TABLE}?select=${encodeURIComponent(select)}&order=created_at.desc`, {
+      method: "GET",
+    });
+  } catch (error) {
+    if (!options.includeImages && error.message.includes("image_meta")) {
+      return supabaseRequest(
+        `/${SUPABASE_TABLE}?select=${encodeURIComponent("id,entry_date,entry_type,amount,category,note,created_at")}&order=created_at.desc`,
+        { method: "GET" }
+      );
+    }
+    throw error;
   }
 }
 
@@ -206,7 +225,7 @@ async function addEntry(entry) {
     body: JSON.stringify(entryToRow(entry)),
     headers: { Prefer: "return=representation" },
   });
-  return { entry: rowToEntry(rows[0]) || entry };
+  return { entry: rowToEntry(rows[0], { includeImages: true }) || entry };
 }
 
 async function deleteEntry(id) {
@@ -226,18 +245,18 @@ async function deleteEntry(id) {
   return { deleted: rows.length > 0, id };
 }
 
-async function getEntryImage(id) {
+async function getEntryImages(id) {
   if (hasSupabase()) {
     const rows = await supabaseRequest(
       `/${SUPABASE_TABLE}?select=image&id=eq.${encodeURIComponent(id)}&limit=1`,
       { method: "GET" }
     );
-    return normalizeImage(rows[0]?.image);
+    return normalizeImages(rows[0]?.image);
   }
 
   const ledger = await readLedger({ includeImages: true });
   const entry = ledger.entries.find((item) => item.id === id);
-  return normalizeImage(entry?.image);
+  return normalizeImages(entry?.images || entry?.image);
 }
 
 function hasSupabase() {
@@ -249,6 +268,32 @@ function normalizeSupabaseUrl(value) {
     .trim()
     .replace(/\/+$/, "")
     .replace(/\/rest\/v1$/i, "");
+}
+
+function getSupabaseHost() {
+  try {
+    return SUPABASE_URL ? new URL(SUPABASE_URL).host : null;
+  } catch {
+    return "invalid_url";
+  }
+}
+
+async function getDebugInfo() {
+  const info = {
+    hasSupabaseUrl: Boolean(SUPABASE_URL),
+    supabaseHost: getSupabaseHost(),
+    hasSupabaseKey: Boolean(SUPABASE_SECRET_KEY),
+    keyKind: SUPABASE_SECRET_KEY ? (isJwtKey(SUPABASE_SECRET_KEY) ? "jwt" : "secret") : null,
+  };
+
+  if (!hasSupabase()) return info;
+
+  try {
+    const rows = await supabaseRequest(`/${SUPABASE_TABLE}?select=id&limit=1`, { method: "GET" });
+    return { ...info, supabaseReachable: true, sampleRows: rows.length };
+  } catch (error) {
+    return { ...info, supabaseReachable: false, error: error.message };
+  }
 }
 
 async function supabaseRequest(pathname, options = {}) {
@@ -286,7 +331,7 @@ function isJwtKey(key) {
 
 function rowToEntry(row, options = {}) {
   if (!row) return null;
-  const image = options.includeImages ? row.image : null;
+  const images = options.includeImages ? normalizeImages(row.image) : normalizeImageMeta(row.image_meta);
   return normalizeEntry({
     id: row.id,
     date: row.entry_date,
@@ -294,26 +339,22 @@ function rowToEntry(row, options = {}) {
     amount: row.amount,
     category: row.category,
     note: row.note,
-    image,
+    images,
     createdAt: row.created_at,
   });
 }
 
 function stripEntryImage(entry) {
-  if (!entry.image?.dataUrl) return entry;
+  const images = normalizeImages(entry.images || entry.image);
+  if (!images.length) return entry;
   return {
     ...entry,
-    image: {
-      name: entry.image.name,
-      type: entry.image.type,
-      size: entry.image.size,
-      originalSize: entry.image.originalSize,
-      hasImage: true,
-    },
+    images: images.map(imageToMeta),
   };
 }
 
 function entryToRow(entry) {
+  const images = normalizeImages(entry.images || entry.image);
   return {
     id: entry.id,
     entry_date: entry.date,
@@ -321,7 +362,8 @@ function entryToRow(entry) {
     amount: entry.amount,
     category: entry.category,
     note: entry.note,
-    image: entry.image,
+    image: images.length ? { items: images } : null,
+    image_meta: images.map(imageToMeta),
     created_at: entry.createdAt,
   };
 }
@@ -334,7 +376,7 @@ function normalizeEntry(entry) {
     return null;
   }
 
-  const image = normalizeImage(entry.image);
+  const images = normalizeImages(entry.images || entry.image);
   return {
     id: typeof entry.id === "string" && entry.id ? entry.id : crypto.randomUUID(),
     date: String(entry.date).slice(0, 10),
@@ -342,9 +384,15 @@ function normalizeEntry(entry) {
     amount,
     category: typeof entry.category === "string" && entry.category ? entry.category : "未分类",
     note: typeof entry.note === "string" ? entry.note : "",
-    image,
+    images,
     createdAt: typeof entry.createdAt === "string" && entry.createdAt ? entry.createdAt : new Date().toISOString(),
-  };
+};
+}
+
+function normalizeImages(value) {
+  if (!value) return [];
+  const rawImages = Array.isArray(value) ? value : Array.isArray(value.items) ? value.items : [value];
+  return rawImages.map(normalizeImage).filter(Boolean);
 }
 
 function normalizeImage(image) {
@@ -357,6 +405,29 @@ function normalizeImage(image) {
     size: Number.isFinite(Number(image.size)) ? Number(image.size) : 0,
     originalSize: Number.isFinite(Number(image.originalSize)) ? Number(image.originalSize) : 0,
     dataUrl: image.dataUrl,
+  };
+}
+
+function normalizeImageMeta(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((image) => image && typeof image === "object")
+    .map((image) => ({
+      name: typeof image.name === "string" ? image.name : "记录图片",
+      type: typeof image.type === "string" ? image.type : "image/*",
+      size: Number.isFinite(Number(image.size)) ? Number(image.size) : 0,
+      originalSize: Number.isFinite(Number(image.originalSize)) ? Number(image.originalSize) : 0,
+      hasImage: true,
+    }));
+}
+
+function imageToMeta(image) {
+  return {
+    name: image.name,
+    type: image.type,
+    size: image.size,
+    originalSize: image.originalSize,
+    hasImage: true,
   };
 }
 
