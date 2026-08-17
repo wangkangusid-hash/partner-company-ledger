@@ -143,11 +143,11 @@ async function readLedger(options = {}) {
   if (hasSupabase()) {
     const select = includeImages
       ? "*"
-      : "id,entry_date,entry_type,amount,category,note,created_at,image_meta";
+      : "id,entry_date,entry_type,amount,category,note,created_at,image,image_meta";
     const rows = await readSupabaseRows(select, { includeImages });
     const entries = rows.map((row) => rowToEntry(row, { includeImages })).filter(Boolean);
     return {
-      entries,
+      entries: includeImages ? entries : entries.map(stripEntryImage),
       updatedAt: rows[0]?.created_at || null,
     };
   }
@@ -331,7 +331,8 @@ function isJwtKey(key) {
 
 function rowToEntry(row, options = {}) {
   if (!row) return null;
-  const images = options.includeImages ? normalizeImages(row.image) : normalizeImageMeta(row.image_meta);
+  const imageMeta = normalizeImageMeta(row.image_meta);
+  const images = options.includeImages ? normalizeImages(row.image) : imageMeta.length ? imageMeta : normalizeImages(row.image);
   return normalizeEntry({
     id: row.id,
     date: row.entry_date,
@@ -396,16 +397,30 @@ function normalizeImages(value) {
 }
 
 function normalizeImage(image) {
-  if (!image || typeof image !== "object" || typeof image.dataUrl !== "string") return null;
-  if (!image.dataUrl.startsWith("data:image/")) return null;
+  if (!image || typeof image !== "object") return null;
 
-  return {
+  const normalized = {
     name: typeof image.name === "string" ? image.name : "记录图片",
     type: typeof image.type === "string" ? image.type : "image/*",
     size: Number.isFinite(Number(image.size)) ? Number(image.size) : 0,
     originalSize: Number.isFinite(Number(image.originalSize)) ? Number(image.originalSize) : 0,
-    dataUrl: image.dataUrl,
   };
+
+  if (typeof image.dataUrl === "string" && image.dataUrl.startsWith("data:image/")) {
+    return {
+      ...normalized,
+      dataUrl: image.dataUrl,
+    };
+  }
+
+  if (image.hasImage || image.name) {
+    return {
+      ...normalized,
+      hasImage: true,
+    };
+  }
+
+  return null;
 }
 
 function normalizeImageMeta(value) {
