@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>合伙公司记账</title>
     <link rel="stylesheet" href="./styles.css" />
+    <link rel="stylesheet" href="./settlements.css" />
   </head>
   <body>
     <main class="app-shell">
@@ -50,6 +51,32 @@
           <strong id="todayNet">¥0.00</strong>
         </article>
       </section>
+
+      <details class="settlements" id="settlementPanel">
+        <summary>垫付与报销 <span id="settlementBadge">查看</span></summary>
+        <div class="settlement-content">
+          <div class="section-title">
+            <h2>垫付与报销</h2>
+            <div class="settlement-actions">
+              <button id="settlementExport" type="button" disabled>导出记录</button>
+              <button id="settlementRefresh" type="button">刷新</button>
+            </div>
+          </div>
+          <p id="settlementStatus" role="status" aria-live="polite">待加载</p>
+          <div id="settlementBalances" class="settlement-balances"></div>
+          <form id="settlementForm" class="settlement-form">
+            <label>日期<input name="date" type="date" required /></label>
+            <label>姓名<input name="person" list="settlementPeople" maxlength="60" required autocomplete="off" /></label>
+            <datalist id="settlementPeople"></datalist>
+            <label>类型<select name="kind"><option value="advance">垫付</option><option value="reimbursement">报销</option></select></label>
+            <label>金额<input name="amount" type="number" min="0.01" max="9999999999.99" step="0.01" inputmode="decimal" required /></label>
+            <label class="settlement-note">备注<input name="note" maxlength="1000" placeholder="用途、报销批次或历史垫款" /></label>
+            <button class="primary-button" type="submit" disabled>保存垫付 / 报销</button>
+          </form>
+          <label class="settlement-filter">按姓名查看<select id="settlementPersonFilter"><option value="">全部人员</option></select></label>
+          <div id="settlementRecords"></div>
+        </div>
+      </details>
 
       <section class="workspace">
         <form class="entry-form" id="entryForm">
@@ -169,5 +196,6 @@
     </template>
 
     <script src="./app.js"></script>
+    <script src="./settlements-ui.js"></script>
   </body>
 </html>

@@ -1,0 +1,46 @@
+.settlements {
+  margin-bottom: 18px;
+  border-block: 1px solid var(--line);
+  background: var(--panel);
+}
+.settlements summary {
+  cursor: pointer;
+  padding: 16px;
+  font-weight: 700;
+}
+.settlements summary span {
+  margin-left: 12px;
+  font-size: 13px;
+  color: var(--muted);
+  font-weight: 400;
+}
+.settlement-content { padding: 0 16px 18px; }
+.settlement-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+#settlementStatus { margin: 12px 0; color: var(--muted); font-size: 13px; }
+.settlement-balances { display: grid; gap: 8px; margin-bottom: 16px; }
+.settlement-balance {
+  display: flex; flex-wrap: wrap; gap: 8px 24px;
+  border-bottom: 1px solid var(--line); padding: 12px 0;
+  font-size: 14px; overflow-wrap: anywhere;
+}
+.settlement-form {
+  display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px; align-items: end; margin-bottom: 18px;
+}
+.settlement-form .settlement-note { grid-column: span 3; }
+.settlement-filter { max-width: 260px; margin-bottom: 12px; }
+.settlement-row {
+  display: flex; justify-content: space-between; gap: 12px;
+  padding: 14px 0; border-bottom: 1px solid var(--line);
+}
+.settlement-row > div { min-width: 0; }
+.settlement-row p { color: var(--muted); font-size: 13px; margin-top: 5px; overflow-wrap: anywhere; }
+.settlement-row strong { overflow-wrap: anywhere; }
+.settlement-row button { align-self: center; flex-shrink: 0; }
+.settlements button:disabled { cursor: wait; opacity: .55; }
+@media (max-width: 640px) {
+  .settlement-form { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .settlement-form .settlement-note, .settlement-form button { grid-column: 1 / -1; }
+  .settlement-content > .section-title { flex-wrap: wrap; }
+  .settlements summary span { display: block; margin: 6px 0 0 18px; }
+}

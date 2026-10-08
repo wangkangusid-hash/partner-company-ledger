@@ -2,6 +2,7 @@ const http = require("node:http");
 const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const { createSettlementHandler } = require("./settlements-server");
 
 const PORT = Number(process.env.PORT || 5173);
 const HOST = process.env.HOST || "0.0.0.0";
@@ -13,6 +14,9 @@ const ROOT_DIR = __dirname;
 const DATA_DIR = path.join(ROOT_DIR, "data");
 const DATA_FILE = path.join(DATA_DIR, "ledger.json");
 const MAX_BODY_BYTES = 25 * 1024 * 1024;
+const handleSettlements = createSettlementHandler({
+  dataDir: DATA_DIR, hasSupabase, supabaseRequest, readJsonBody, sendJson,
+});
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -69,6 +73,8 @@ async function handleApi(request, response, url) {
     sendJson(response, 401, { error: "unauthorized" });
     return;
   }
+
+  if (await handleSettlements(request, response, url)) return;
 
   if (isEntriesPath(url.pathname) && request.method === "GET") {
     sendJson(response, 200, await readLedger());
